@@ -72,3 +72,42 @@ jobs:
             esac
             sleep 10
           done
+
+
+
+name: CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run webmail login script
+        run: |
+          ./run_testrigor_tests.sh
+
+      - name: Upload test report (only if previous steps succeed)
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-report
+          path: ./path/to/your/report.html  # Change to actual report location
+
+      - name: Send notification email (only if previous steps succeed)
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "Webmail Login Test Passed"
+          to: vgawande@microproindia.com
+          from: vgawande@microproindia.com
+          body: "The webmail login test ran successfully."
