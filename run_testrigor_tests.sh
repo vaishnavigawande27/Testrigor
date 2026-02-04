@@ -2,6 +2,11 @@
 
 # Test parameters (replace with actual login details and URLs)
 WEBMAIL_URL="https://mail.microproindia.com/webmail/#sign-in"
+
+# Print environment variables for debugging (optional)
+echo "USERNAME: $EMAIL_USERNAME"
+echo "PASSWORD: $EMAIL_PASSWORD"
+
 USER="$EMAIL_USERNAME"  # Correctly reference the environment variable
 PASS="$EMAIL_PASSWORD"  # Correctly reference the environment variable
 
