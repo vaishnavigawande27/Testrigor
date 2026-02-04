@@ -1,5 +1,6 @@
-name: Webmail Login Test CI
+name: CI
 
+# Controls when the workflow will run
 on:
   push:
     branches: [ "main" ]
@@ -8,64 +9,62 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  retest:
     runs-on: ubuntu-latest
-
+    env:
+      TESTRIGOR_API_TOKEN: ${{ secrets.TESTRIGOR_API_TOKEN }}
+      TESTRIGOR_APP_ID: ${{ secrets.TESTRIGOR_APP_ID }}
     steps:
-      # Checkout the code from the repository
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # Set environment variables for email and password
-      - name: Set up environment variables
+      - name: Trigger TestRigor Retest
         run: |
-          echo "EMAIL_USERNAME=${{ secrets.EMAIL_USERNAME }}" >> $GITHUB_ENV
-          echo "EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}" >> $GITHUB_ENV
-          echo "EMAIL_USERNAME: $EMAIL_USERNAME"  # Debugging the environment variable
+          echo "Triggering TestRigor retest..."
+          curl -X POST \
+            -H "Content-type: application/json" \
+            -H "auth-token: $TESTRIGOR_API_TOKEN" \
+            --data '{"forceCancelPreviousTesting":true,"storedValues":{"storedValueName1":"Value"}}' \
+            https://api.testrigor.com/api/v1/apps/$TESTRIGOR_APP_ID/retest
+      - name: Wait 10 seconds
+        run: sleep 10
 
-      # Install necessary dependencies (e.g., curl)
-      - name: Install Dependencies (curl)
+      - name: Poll TestRigor for Status
         run: |
-          sudo apt-get update
-          sudo apt-get install -y curl
-
-      # Run the webmail login test script
-      - name: Run Webmail Login Tests
-        run: ./run_testrigor_tests.sh
-
-      # Upload the test report (this will be generated dynamically)
-      - name: Upload Test Report
-        if: success()  # Only upload if the test was successful
-        uses: actions/upload-artifact@v4
-        with:
-          name: webmail-login-report
-          path: ./report.html  # This path corresponds to the dynamically generated report
-
-      # Send email notification if the test passes
-      - name: Send Notification Email (Success)
-        if: success()
-        uses: dawidd6/action-send-mail@v4
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "Webmail Login Test Passed"
-          to: vgawande@microproindia.com
-          from: vgawande@microproindia.com
-          body: "The webmail login test ran successfully. View the test report in the artifact."
-
-
-      # Optionally, send failure notification if the test fails
-      - name: Send Failure Notification Email
-        if: failure()  # Only send if the test fails
-        uses: dawidd6/action-send-mail@v4
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "Webmail Login Test Failed"
-          to: vgawande@microproindia.com
-          from: vgawande@microproindia.com
-          body: "The webmail login test failed. Please check the test report for details."
+          while true; do
+            echo " "
+            echo "==================================="
+            echo " Checking run status"
+            echo "==================================="
+            response=$(curl -i -o - -s -X GET "https://api.testrigor.com/api/v1/apps/$TESTRIGOR_APP_ID/status" \
+              -H "auth-token: $TESTRIGOR_API_TOKEN" -H "Accept: application/json")
+            code=$(echo "$response" | grep HTTP | awk '{print $2}')
+            body=$(echo "$response" | sed -n '/{/,/}/p')
+            echo "Status code: $code"
+            echo "Response: $body"
+            case $code in
+              4*|5*)
+                echo "Error calling API"
+                exit 1
+                ;;
+              200)
+                echo "Test finished successfully"
+                exit 0
+                ;;
+              227|228)
+                echo "Test is not finished yet"
+                ;;
+              229)
+                echo "Test canceled"
+                exit 1
+                ;;
+              230)
+                echo "Test finished but failed"
+                exit 1
+                ;;
+              *)
+                echo "Unknown status"
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
