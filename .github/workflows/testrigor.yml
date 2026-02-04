@@ -21,6 +21,7 @@ jobs:
         run: |
           echo "EMAIL_USERNAME=${{ secrets.EMAIL_USERNAME }}" >> $GITHUB_ENV
           echo "EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}" >> $GITHUB_ENV
+          echo "EMAIL_USERNAME: $EMAIL_USERNAME"  # Debugging the environment variable
 
       # Install necessary dependencies (e.g., curl)
       - name: Install Dependencies (curl)
@@ -53,6 +54,7 @@ jobs:
           to: vgawande@microproindia.com
           from: vgawande@microproindia.com
           body: "The webmail login test ran successfully. View the test report in the artifact."
+
 
       # Optionally, send failure notification if the test fails
       - name: Send Failure Notification Email
