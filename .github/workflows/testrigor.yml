@@ -25,6 +25,7 @@ jobs:
             -H "auth-token: $TESTRIGOR_API_TOKEN" \
             --data '{"forceCancelPreviousTesting":true,"storedValues":{"storedValueName1":"Value"}}' \
             https://api.testrigor.com/api/v1/apps/$TESTRIGOR_APP_ID/retest
+
       - name: Wait 10 seconds
         run: sleep 10
 
@@ -68,3 +69,41 @@ jobs:
             esac
             sleep 10
           done
+
+      - name: Send Email Notification on Success
+        if: success()  # Send email only if the test passes
+        run: |
+          curl -X POST \
+            https://api.sendgrid.com/v3/mail/send \
+            -H "Authorization: Bearer ${{ secrets.SENDGRID_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "personalizations": [{
+                "to": [{"email": "${{ secrets.RECIPIENT_EMAIL }}"}],
+                "subject": "Test Passed - CI Workflow"
+              }],
+              "from": {"email": "${{ secrets.SENDER_EMAIL }}"},
+              "content": [{
+                "type": "text/plain",
+                "value": "Your TestRigor test has finished successfully! 🎉"
+              }]
+            }'
+
+      - name: Send Email Notification on Failure
+        if: failure()  # Send email only if the test fails
+        run: |
+          curl -X POST \
+            https://api.sendgrid.com/v3/mail/send \
+            -H "Authorization: Bearer ${{ secrets.SENDGRID_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "personalizations": [{
+                "to": [{"email": "${{ secrets.RECIPIENT_EMAIL }}"}],
+                "subject": "Test Failed - CI Workflow"
+              }],
+              "from": {"email": "${{ secrets.SENDER_EMAIL }}"},
+              "content": [{
+                "type": "text/plain",
+                "value": "Your TestRigor test has failed. Please check the logs for more details."
+              }]
+            }'
