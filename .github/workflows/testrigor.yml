@@ -9,79 +9,67 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repo (optional if not needed)
+      # Step 1: Checkout code
       - name: Checkout
         uses: actions/checkout@v3
 
-      # Step 2: Run testrigor CI script
-      - name: Run testrigor suite
+      # Step 2: Trigger testrigor suite
+      - name: Trigger testrigor suite
         id: run_tests
         run: |
           #!/bin/bash
+          echo "Triggering testrigor suite..."
 
-          # Trigger testRigor run
-          curl -X POST \
+          # POST to start the suite
+          RESPONSE=$(curl -s -X POST \
             -H 'Content-type: application/json' \
             -H "auth-token: ${{ secrets.TESTRIGOR_API_KEY }}" \
-            --data '{"forceCancelPreviousTesting":true,"storedValues":{"storedValueName1":"Value"}}' \
-            https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/retest
+            --data '{"forceCancelPreviousTesting":true}' \
+            https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/retest)
 
-          # Wait a bit before polling
-          sleep 10
+          echo "response=$RESPONSE" >> $GITHUB_OUTPUT
 
-          while true
-          do
-            echo " "
-            echo "==================================="
-            echo " Checking run status"
-            echo "==================================="
-            
-            # Get status
-            response=$(curl -i -o - -s -X GET "https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/status" \
-              -H "auth-token: ${{ secrets.TESTRIGOR_API_KEY }}" \
-              -H "Accept: application/json")
-              
-            code=$(echo "$response" | grep HTTP | awk '{print $2}')
-            echo "Status code: $code"
-
-            case $code in
-              4*|5*)
-                echo "Error calling API"
-                exit 1
-                ;;
-              200)
-                echo "Test finished successfully"
-                exit 0
-                ;;
-              227|228)
-                echo "Test is not finished yet"
-                ;;
-              229)
-                echo "Test canceled"
-                exit 1
-                ;;
-              230)
-                echo "Test finished but failed"
-                exit 1
-                ;;
-              *)
-                echo "Unknown status"
-                exit 1
-                ;;
-            esac
+      # Step 3: Poll suite status
+      - name: Poll for suite completion
+        id: check_status
+        run: |
+          #!/bin/bash
+          echo "Polling testrigor suite status..."
+          STATUS=""
+          while true; do
             sleep 10
+            RESPONSE=$(curl -s -X GET \
+              -H "auth-token: ${{ secrets.TESTRIGOR_API_KEY }}" \
+              -H "Accept: application/json" \
+              https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/status)
+
+            STATUS=$(echo "$RESPONSE" | grep -o '"result":"[a-z]*"' | sed 's/"result":"//;s/"//')
+            echo "Current suite result: $STATUS"
+
+            if [[ "$STATUS" == "fail" ]]; then
+              echo "Test failed"
+              exit 1
+            elif [[ "$STATUS" == "pass" ]]; then
+              echo "Test passed"
+              exit 0
+            fi
+
+            # Otherwise, keep polling
+            echo "Test still running..."
           done
 
-      # Step 3: Slack notification on failure
+      # Step 4: Slack notification on failure
       - name: Notify Slack on failure
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data '{"text":"❌ testrigor Tests FAILED"}' ${{ secrets.SLACK_WEBHOOK_URL }}
+          --data '{"text":"❌ testrigor Tests FAILED!\nRepository: '${{ github.repository }}'\nBranch: '${{ github.ref_name }}'\nCommit: '${{ github.sha }}'"}' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      # Step 4: Slack notification on success
+      # Step 5: Slack notification on success
       - name: Notify Slack on success
         if: success()
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data '{"text":"✅ testrigor Tests PASSED"}' ${{ secrets.SLACK_WEBHOOK_URL }}
+          --data '{"text":"✅ testrigor Tests PASSED!\nRepository: '${{ github.repository }}'\nBranch: '${{ github.ref_name }}'\nCommit: '${{ github.sha }}'"}' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
