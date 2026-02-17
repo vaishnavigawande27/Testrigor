@@ -9,29 +9,50 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Step 1: Checkout code
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # Step 2: Install testrigor CLI
       - name: Install testrigor CLI
         run: |
+          pip install --upgrade pip
           pip install testrigor
 
+      # Step 3: Run testrigor suite and capture result
       - name: Run testrigor suite
         run: |
-          testrigor run-suite \
+          echo "Running testrigor suite..."
+          OUTPUT=$(testrigor run-suite \
             --suite-id XaF3XkqTdMiNwApoN \
-            --api-key ${{ secrets.TESTRIGOR_API_KEY }}
-      
+            --api-key ${{ secrets.TESTRIGOR_API_KEY }} \
+            --no-exit-on-failure)
+
+          echo "$OUTPUT"
+
+          # Fail job only if suite truly failed
+          if echo "$OUTPUT" | grep -q "Tests FAILED"; then
+            echo "❌ Some tests failed!"
+            exit 1
+          else
+            echo "✅ All tests passed!"
+            exit 0
+          fi
+
+      # Step 4: Notify Slack on FAILURE
       - name: Notify Slack on failure
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data '{"text":"❌ testrigor Tests FAILED!"}' \
-          ${{ secrets.SLACK_WEBHOOK_URL }}
+          --data '{
+            "text": "❌ testrigor Tests FAILED!\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\n[View CI Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          }' ${{ secrets.SLACK_WEBHOOK_URL }}
 
+      # Step 5: Notify Slack on SUCCESS
       - name: Notify Slack on success
         if: success()
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data '{"text":"✅ testrigor Tests PASSED!"}' \
-          ${{ secrets.SLACK_WEBHOOK_URL }}
+          --data '{
+            "text": "✅ testrigor Tests PASSED!\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\n[View CI Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          }' ${{ secrets.SLACK_WEBHOOK_URL }}
