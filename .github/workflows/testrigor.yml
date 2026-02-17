@@ -9,33 +9,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout code
       - name: Checkout
         uses: actions/checkout@v3
 
-      # Step 2: Trigger testrigor suite
-      - name: Trigger testrigor suite
-        id: run_tests
+      - name: Run testrigor suite and poll
         run: |
           #!/bin/bash
           echo "Triggering testrigor suite..."
-
-          # POST to start the suite
-          RESPONSE=$(curl -s -X POST \
+          
+          # Trigger suite
+          curl -s -X POST \
             -H 'Content-type: application/json' \
             -H "auth-token: ${{ secrets.TESTRIGOR_API_KEY }}" \
             --data '{"forceCancelPreviousTesting":true}' \
-            https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/retest)
+            https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/retest
 
-          echo "response=$RESPONSE" >> $GITHUB_OUTPUT
-
-      # Step 3: Poll suite status
-      - name: Poll for suite completion
-        id: check_status
-        run: |
-          #!/bin/bash
-          echo "Polling testrigor suite status..."
-          STATUS=""
+          echo "Waiting for test to complete..."
           while true; do
             sleep 10
             RESPONSE=$(curl -s -X GET \
@@ -47,27 +36,24 @@ jobs:
             echo "Current suite result: $STATUS"
 
             if [[ "$STATUS" == "fail" ]]; then
-              echo "Test failed"
+              echo "❌ Test failed"
               exit 1
             elif [[ "$STATUS" == "pass" ]]; then
-              echo "Test passed"
+              echo "✅ Test passed"
               exit 0
             fi
 
-            # Otherwise, keep polling
             echo "Test still running..."
           done
 
-      # Step 4: Slack notification on failure
-      - name: Notify Slack on failure
+      - name: Slack notification on failure
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' \
           --data '{"text":"❌ testrigor Tests FAILED!\nRepository: '${{ github.repository }}'\nBranch: '${{ github.ref_name }}'\nCommit: '${{ github.sha }}'"}' \
           ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      # Step 5: Slack notification on success
-      - name: Notify Slack on success
+      - name: Slack notification on success
         if: success()
         run: |
           curl -X POST -H 'Content-type: application/json' \
