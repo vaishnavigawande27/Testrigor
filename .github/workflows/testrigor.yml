@@ -13,43 +13,55 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      # Step 2: Trigger testrigor suite and poll with timeout
-      - name: Run testrigor suite with timeout
+      # Step 2: Trigger and monitor testrigor suite
+      - name: Run testrigor suite
         run: |
           #!/bin/bash
           set -e
 
-          echo "Triggering testrigor suite..."
-
-          # Trigger the suite
-          curl -s -X POST \
+          echo "Triggering testRigor suite..."
+          RESPONSE=$(curl -s -X POST \
             -H 'Content-type: application/json' \
             -H "auth-token: ${{ secrets.TESTRIGOR_API_KEY }}" \
             --data '{"forceCancelPreviousTesting":true}' \
-            https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/retest
+            https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/retest)
+
+          echo "Trigger response: $RESPONSE"
+
+          # Fail immediately if unauthorized
+          if echo "$RESPONSE" | grep -q "Unauthorized"; then
+            echo "❌ Unauthorized access — check TESTRIGOR_API_KEY"
+            exit 1
+          fi
 
           echo "Waiting for test suite to complete..."
 
-          # Timeout settings
-          MAX_WAIT=900   # 15 minutes max
-          SLEEP_INTERVAL=10
+          # Polling settings
+          MAX_WAIT=300         # 5 minutes max for single test
+          SLEEP_INTERVAL=5     # poll every 5 seconds
           ELAPSED=0
 
           while [ $ELAPSED -lt $MAX_WAIT ]; do
-            RESPONSE=$(curl -s -X GET \
+            STATUS_RESPONSE=$(curl -s -X GET \
               -H "auth-token: ${{ secrets.TESTRIGOR_API_KEY }}" \
               -H "Accept: application/json" \
               https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/status)
 
-            STATUS=$(echo "$RESPONSE" | grep -o '"result":"[a-z]*"' | sed 's/"result":"//;s/"//')
+            # Unauthorized check during polling
+            if echo "$STATUS_RESPONSE" | grep -q "Unauthorized"; then
+              echo "❌ Unauthorized access during polling"
+              exit 1
+            fi
+
+            STATUS=$(echo "$STATUS_RESPONSE" | grep -o '"result":"[a-z]*"' | sed 's/"result":"//;s/"//')
             echo "Current suite status: $STATUS"
 
-            if [[ "$STATUS" == "fail" ]]; then
-              echo "❌ Test failed"
-              exit 1
-            elif [[ "$STATUS" == "pass" ]]; then
+            if [[ "$STATUS" == "pass" ]]; then
               echo "✅ Test passed"
               exit 0
+            elif [[ "$STATUS" == "fail" ]]; then
+              echo "❌ Test failed"
+              exit 1
             fi
 
             echo "Test still running..."
