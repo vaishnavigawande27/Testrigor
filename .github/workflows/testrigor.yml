@@ -5,75 +5,76 @@ on:
     branches: [ main ]
 
 jobs:
-  run-testrigor-suite:
+  run-testrigor:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Trigger and wait for testrigor suite result
+      - name: Run testRigor suite
         run: |
           #!/bin/bash
           set -e
 
-          TOKEN="YUQjfG0W0ywpfEmeXTPyVEU0vLJoEMRa81JejA0YBlClvUKArO9m"
-          SUITE_ID="XaF3XkqTdMiNwApoN"
-
           echo "🚀 Triggering testRigor suite..."
 
-          RESPONSE=$(curl -s -X POST \
+          TRIGGER_RESPONSE=$(curl -s -X POST \
             -H "Content-type: application/json" \
-            -H "auth-token: $TOKEN" \
+            -H "auth-token: YOUR_API_TOKEN_HERE" \
             --data '{"forceCancelPreviousTesting":true}' \
-            https://api.testrigor.com/api/v1/apps/$SUITE_ID/retest)
+            https://api.testrigor.com/api/v1/apps/YOUR_SUITE_ID_HERE/retest)
 
-          echo "Trigger response: $RESPONSE"
+          echo "Trigger response: $TRIGGER_RESPONSE"
 
-          if echo "$RESPONSE" | grep -q "Unauthorized"; then
+          if echo "$TRIGGER_RESPONSE" | grep -q "Unauthorized"; then
             echo "❌ Unauthorized access"
             exit 1
           fi
 
-          echo "⏳ Waiting for test result..."
+          echo "⏳ Waiting for result..."
 
-          MAX_WAIT=900        # wait max 15 minutes
-          SLEEP_INTERVAL=10
+          MAX_WAIT=600
+          SLEEP=15
           ELAPSED=0
 
           while [ $ELAPSED -lt $MAX_WAIT ]; do
+
             STATUS_RESPONSE=$(curl -s -X GET \
-              -H "auth-token: $TOKEN" \
-              -H "Accept: application/json" \
-              https://api.testrigor.com/api/v1/apps/$SUITE_ID/status)
+              -H "auth-token: YOUR_API_TOKEN_HERE" \
+              https://api.testrigor.com/api/v1/apps/YOUR_SUITE_ID_HERE/status)
 
-            STATUS=$(echo "$STATUS_RESPONSE" | grep -o '"result":"[a-z]*"' | sed 's/"result":"//;s/"//')
+            echo "Status response: $STATUS_RESPONSE"
 
-            if [[ "$STATUS" == "pass" ]]; then
-              echo "✅ Test suite PASSED"
+            if echo "$STATUS_RESPONSE" | grep -q '"result": "pass"'; then
+              echo "✅ Test PASSED"
               exit 0
-            elif [[ "$STATUS" == "fail" ]]; then
-              echo "❌ Test suite FAILED"
+            fi
+
+            if echo "$STATUS_RESPONSE" | grep -q '"result": "fail"'; then
+              echo "❌ Test FAILED"
               exit 1
             fi
 
-            sleep $SLEEP_INTERVAL
-            ELAPSED=$((ELAPSED + SLEEP_INTERVAL))
+            echo "Still running..."
+            sleep $SLEEP
+            ELAPSED=$((ELAPSED + SLEEP))
+
           done
 
-          echo "⚠️ Test suite timed out"
+          echo "⚠️ Timeout waiting for test result"
           exit 1
 
-      - name: Notify Slack on failure
+      - name: Slack on failure
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data '{"text":"❌ testrigor Suite FAILED\nRepo: '${{ github.repository }}'\nBranch: '${{ github.ref_name }}'"}' \
+          --data '{"text":"❌ testRigor FAILED"}' \
           ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      - name: Notify Slack on success
+      - name: Slack on success
         if: success()
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data '{"text":"✅ testrigor Suite PASSED\nRepo: '${{ github.repository }}'\nBranch: '${{ github.ref_name }}'"}' \
+          --data '{"text":"✅ testRigor PASSED"}' \
           ${{ secrets.SLACK_WEBHOOK_URL }}
