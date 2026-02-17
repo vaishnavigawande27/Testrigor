@@ -1,4 +1,4 @@
-name: CI - testrigor
+name: CI - testRigor
 
 on:
   push:
@@ -17,8 +17,10 @@ jobs:
           #!/bin/bash
           set -e
 
+          # Use GitHub secret for security
           TOKEN="YUQjfG0W0ywpfEmeXTPyVEU0vLJoEMRa81JejA0YBlClvUKArO9m"
-          SUITE_ID="YOUR_SUITE_ID_HERE"
+          
+          SUITE_ID="XaF3XkqTdMiNwApoN"
 
           echo "🚀 Triggering testRigor suite..."
 
@@ -31,18 +33,22 @@ jobs:
           echo "Trigger response: $TRIGGER_RESPONSE"
 
           if echo "$TRIGGER_RESPONSE" | grep -q "Unauthorized"; then
-            echo "❌ Unauthorized access"
+            echo "❌ Unauthorized access — check API token"
             exit 1
           fi
 
-          echo "⏳ Waiting for result..."
+          if echo "$TRIGGER_RESPONSE" | grep -q "NOT_FOUND"; then
+            echo "❌ Suite not found — check SUITE_ID"
+            exit 1
+          fi
 
-          MAX_WAIT=600
+          echo "⏳ Waiting for test result..."
+
+          MAX_WAIT=600   # max 10 minutes
           SLEEP=15
           ELAPSED=0
 
           while [ $ELAPSED -lt $MAX_WAIT ]; do
-
             STATUS_RESPONSE=$(curl -s -X GET \
               -H "auth-token: $TOKEN" \
               https://api.testrigor.com/api/v1/apps/$SUITE_ID/status)
@@ -67,16 +73,16 @@ jobs:
           echo "⚠️ Timeout waiting for test result"
           exit 1
 
-      - name: Slack on failure
-        if: failure()
-        run: |
-          curl -X POST -H 'Content-type: application/json' \
-          --data '{"text":"❌ testRigor FAILED"}' \
-          ${{ secrets.SLACK_WEBHOOK_URL }}
-
       - name: Slack on success
         if: success()
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data '{"text":"✅ testRigor PASSED"}' \
+          --data '{"text":"✅ testRigor Suite PASSED"}' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Slack on failure
+        if: failure()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+          --data '{"text":"❌ testRigor Suite FAILED"}' \
           ${{ secrets.SLACK_WEBHOOK_URL }}
