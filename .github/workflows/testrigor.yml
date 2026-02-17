@@ -5,54 +5,65 @@ on:
     branches: [ main ]
 
 jobs:
-  run-testrigor-tests:
+  run-testrigor:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout code
+      # Step 1: Checkout repository
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Step 2: Install testrigor CLI
-      - name: Install testrigor CLI
+      # Step 2: Trigger testrigor suite
+      - name: Trigger testrigor suite
+        id: run_tests
         run: |
-          pip install --upgrade pip
-          pip install testrigor
+          echo "Triggering testrigor suite..."
+          RESPONSE=$(curl -s -X POST "https://api.testrigor.com/api/run" \
+            -H "Authorization: Bearer ${{ secrets.TESTRIGOR_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"testSuiteId\":\"XaF3XkqTdMiNwApoN\"}")
 
-      # Step 3: Run testrigor suite and capture result
-      - name: Run testrigor suite
+          echo "response=$RESPONSE" >> $GITHUB_OUTPUT
+
+      # Step 3: Poll for test result
+      - name: Poll for suite completion
+        id: check_status
         run: |
-          echo "Running testrigor suite..."
-          OUTPUT=$(testrigor run-suite \
-            --suite-id XaF3XkqTdMiNwApoN \
-            --api-key ${{ secrets.TESTRIGOR_API_KEY }} \
-            --no-exit-on-failure)
+          RAW="${{ steps.run_tests.outputs.response }}"
+          RUN_ID=$(echo "$RAW" | sed -E 's/.*"id":"?([^",}]*)".*/\1/')
+          STATUS="RUNNING"
 
-          echo "$OUTPUT"
+          while [ "$STATUS" = "RUNNING" ]; do
+            sleep 10
+            RESULT=$(curl -s -X GET "https://api.testrigor.com/api/runs/$RUN_ID" \
+              -H "Authorization: Bearer ${{ secrets.TESTRIGOR_API_KEY }}")
+            STATUS=$(echo "$RESULT" | sed -E 's/.*"status":"?([^",}]*)".*/\1/')
+            echo "Current status: $STATUS"
+          done
 
-          # Fail job only if suite truly failed
-          if echo "$OUTPUT" | grep -q "Tests FAILED"; then
-            echo "❌ Some tests failed!"
-            exit 1
-          else
-            echo "✅ All tests passed!"
-            exit 0
-          fi
+          echo "final_status=$STATUS" >> $GITHUB_OUTPUT
 
-      # Step 4: Notify Slack on FAILURE
+      # Step 4: Fail job if tests failed
+      - name: Fail job if tests failed
+        if: steps.check_status.outputs.final_status == 'FAILED'
+        run: |
+          echo "❌ testrigor tests failed!"
+          exit 1
+
+      # Step 5: Slack notification on failure
       - name: Notify Slack on failure
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' \
           --data '{
-            "text": "❌ testrigor Tests FAILED!\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\n[View CI Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            "text": "❌ testrigor Tests FAILED!\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}"
           }' ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      # Step 5: Notify Slack on SUCCESS
+      # Step 6: Slack notification on success
       - name: Notify Slack on success
         if: success()
         run: |
           curl -X POST -H 'Content-type: application/json' \
           --data '{
-            "text": "✅ testrigor Tests PASSED!\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\n[View CI Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            "text": "✅ testrigor Tests PASSED!\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}"
           }' ${{ secrets.SLACK_WEBHOOK_URL }}
