@@ -9,32 +9,55 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 2.1: Checkout code
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Step 2.2: Run testrigor tests
-      - name: Run testrigor tests
-        run: |
-          echo "Running testrigor tests..."
-          # Replace this with your actual testrigor command
-          # Example:
-          # testrigor run my_suite
+      - name: Install jq
+        run: sudo apt-get install jq
 
-      # Step 2.3: Notify Slack on FAILURE
+      - name: Run testrigor suite and wait for result
+        run: |
+          echo "Triggering suite..."
+
+          RESPONSE=$(curl -s -X POST "https://api.testrigor.com/api/run" \
+            -H "Authorization: Bearer ${{ secrets.TESTRIGOR_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"testSuiteId":"XaF3XkqTdMiNwApoN"}')
+
+          RUN_ID=$(echo $RESPONSE | jq -r '.id')
+
+          echo "Run ID: $RUN_ID"
+          echo "Waiting for completion..."
+
+          while true; do
+            STATUS_RESPONSE=$(curl -s -X GET "https://api.testrigor.com/api/runs/$RUN_ID" \
+              -H "Authorization: Bearer ${{ secrets.TESTRIGOR_API_KEY }}")
+
+            STATUS=$(echo $STATUS_RESPONSE | jq -r '.status')
+
+            echo "Current Status: $STATUS"
+
+            if [ "$STATUS" == "PASSED" ]; then
+              echo "Tests passed!"
+              exit 0
+            elif [ "$STATUS" == "FAILED" ]; then
+              echo "Tests failed!"
+              exit 1
+            fi
+
+            sleep 20
+          done
+
       - name: Notify Slack on failure
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data '{
-            "text": "❌ testrigor Tests FAILED!\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\n[View CI Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          }' ${{ secrets.SLACK_WEBHOOK_URL }}
+          --data '{"text":"❌ testrigor Tests FAILED!"}' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      # Step 2.4: Notify Slack on SUCCESS
       - name: Notify Slack on success
         if: success()
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data '{
-            "text": "✅ testrigor Tests PASSED!\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\n[View CI Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          }' ${{ secrets.SLACK_WEBHOOK_URL }}
+          --data '{"text":"✅ testrigor Tests PASSED!"}' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
