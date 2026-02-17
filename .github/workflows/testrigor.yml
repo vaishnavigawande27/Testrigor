@@ -17,13 +17,16 @@ jobs:
           #!/bin/bash
           set -e
 
+          TOKEN="YUQjfG0W0ywpfEmeXTPyVEU0vLJoEMRa81JejA0YBlClvUKArO9m"
+          SUITE_ID="YOUR_SUITE_ID_HERE"
+
           echo "🚀 Triggering testRigor suite..."
 
           TRIGGER_RESPONSE=$(curl -s -X POST \
             -H "Content-type: application/json" \
-            -H "auth-token: YOUR_API_TOKEN_HERE" \
+            -H "auth-token: $TOKEN" \
             --data '{"forceCancelPreviousTesting":true}' \
-            https://api.testrigor.com/api/v1/apps/YOUR_SUITE_ID_HERE/retest)
+            https://api.testrigor.com/api/v1/apps/$SUITE_ID/retest)
 
           echo "Trigger response: $TRIGGER_RESPONSE"
 
@@ -41,8 +44,8 @@ jobs:
           while [ $ELAPSED -lt $MAX_WAIT ]; do
 
             STATUS_RESPONSE=$(curl -s -X GET \
-              -H "auth-token: YOUR_API_TOKEN_HERE" \
-              https://api.testrigor.com/api/v1/apps/YOUR_SUITE_ID_HERE/status)
+              -H "auth-token: $TOKEN" \
+              https://api.testrigor.com/api/v1/apps/$SUITE_ID/status)
 
             echo "Status response: $STATUS_RESPONSE"
 
@@ -59,7 +62,6 @@ jobs:
             echo "Still running..."
             sleep $SLEEP
             ELAPSED=$((ELAPSED + SLEEP))
-
           done
 
           echo "⚠️ Timeout waiting for test result"
