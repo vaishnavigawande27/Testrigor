@@ -9,31 +9,40 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Step 1: Checkout code
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Run testrigor suite and poll
+      # Step 2: Trigger testrigor suite and poll with timeout
+      - name: Run testrigor suite with timeout
         run: |
           #!/bin/bash
+          set -e
+
           echo "Triggering testrigor suite..."
-          
-          # Trigger suite
+
+          # Trigger the suite
           curl -s -X POST \
             -H 'Content-type: application/json' \
             -H "auth-token: ${{ secrets.TESTRIGOR_API_KEY }}" \
             --data '{"forceCancelPreviousTesting":true}' \
             https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/retest
 
-          echo "Waiting for test to complete..."
-          while true; do
-            sleep 10
+          echo "Waiting for test suite to complete..."
+
+          # Timeout settings
+          MAX_WAIT=900   # 15 minutes max
+          SLEEP_INTERVAL=10
+          ELAPSED=0
+
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
             RESPONSE=$(curl -s -X GET \
               -H "auth-token: ${{ secrets.TESTRIGOR_API_KEY }}" \
               -H "Accept: application/json" \
               https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/status)
 
             STATUS=$(echo "$RESPONSE" | grep -o '"result":"[a-z]*"' | sed 's/"result":"//;s/"//')
-            echo "Current suite result: $STATUS"
+            echo "Current suite status: $STATUS"
 
             if [[ "$STATUS" == "fail" ]]; then
               echo "❌ Test failed"
@@ -44,16 +53,23 @@ jobs:
             fi
 
             echo "Test still running..."
+            sleep $SLEEP_INTERVAL
+            ELAPSED=$((ELAPSED + SLEEP_INTERVAL))
           done
 
-      - name: Slack notification on failure
+          echo "⚠️ Test suite timed out after $MAX_WAIT seconds"
+          exit 1
+
+      # Step 3: Slack notification on failure
+      - name: Notify Slack on failure
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' \
           --data '{"text":"❌ testrigor Tests FAILED!\nRepository: '${{ github.repository }}'\nBranch: '${{ github.ref_name }}'\nCommit: '${{ github.sha }}'"}' \
           ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      - name: Slack notification on success
+      # Step 4: Slack notification on success
+      - name: Notify Slack on success
         if: success()
         run: |
           curl -X POST -H 'Content-type: application/json' \
