@@ -17,7 +17,7 @@ jobs:
           #!/bin/bash
           set -e
 
-          TOKEN="${{ secrets.TESTRIGOR_API_KEY }}"
+          TOKEN="YUQjfG0W0ywpfEmeXTPyVEU0vLJoEMRa81JejA0YBlClvUKArO9m"
           SUITE_ID="XaF3XkqTdMiNwApoN"
 
           echo "🚀 Triggering testRigor suite..."
