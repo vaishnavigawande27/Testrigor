@@ -5,34 +5,75 @@ on:
     branches: [ main ]
 
 jobs:
-  run-testrigor-tests:
+  run-testrigor-suite:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 2.1: Checkout code
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Step 2.2: Run testrigor tests
-      - name: Run testrigor tests
+      - name: Trigger and wait for testrigor suite result
         run: |
-          echo "Running testrigor tests..."
-        
+          #!/bin/bash
+          set -e
 
-      # Step 2.3: Notify Slack on FAILURE
+          TOKEN="${{ secrets.TESTRIGOR_API_KEY }}"
+          SUITE_ID="XaF3XkqTdMiNwApoN"
+
+          echo "🚀 Triggering testRigor suite..."
+
+          RESPONSE=$(curl -s -X POST \
+            -H "Content-type: application/json" \
+            -H "auth-token: $TOKEN" \
+            --data '{"forceCancelPreviousTesting":true}' \
+            https://api.testrigor.com/api/v1/apps/$SUITE_ID/retest)
+
+          echo "Trigger response: $RESPONSE"
+
+          if echo "$RESPONSE" | grep -q "Unauthorized"; then
+            echo "❌ Unauthorized access"
+            exit 1
+          fi
+
+          echo "⏳ Waiting for test result..."
+
+          MAX_WAIT=900        # wait max 15 minutes
+          SLEEP_INTERVAL=10
+          ELAPSED=0
+
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            STATUS_RESPONSE=$(curl -s -X GET \
+              -H "auth-token: $TOKEN" \
+              -H "Accept: application/json" \
+              https://api.testrigor.com/api/v1/apps/$SUITE_ID/status)
+
+            STATUS=$(echo "$STATUS_RESPONSE" | grep -o '"result":"[a-z]*"' | sed 's/"result":"//;s/"//')
+
+            if [[ "$STATUS" == "pass" ]]; then
+              echo "✅ Test suite PASSED"
+              exit 0
+            elif [[ "$STATUS" == "fail" ]]; then
+              echo "❌ Test suite FAILED"
+              exit 1
+            fi
+
+            sleep $SLEEP_INTERVAL
+            ELAPSED=$((ELAPSED + SLEEP_INTERVAL))
+          done
+
+          echo "⚠️ Test suite timed out"
+          exit 1
+
       - name: Notify Slack on failure
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data '{
-            "text": "❌ testrigor Tests FAILED!\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\n[View CI Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          }' ${{ secrets.SLACK_WEBHOOK_URL }}
+          --data '{"text":"❌ testrigor Suite FAILED\nRepo: '${{ github.repository }}'\nBranch: '${{ github.ref_name }}'"}' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      # Step 2.4: Notify Slack on SUCCESS
       - name: Notify Slack on success
         if: success()
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data '{
-            "text": "✅ testrigor Tests PASSED!\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\n[View CI Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          }' ${{ secrets.SLACK_WEBHOOK_URL }}
+          --data '{"text":"✅ testrigor Suite PASSED\nRepo: '${{ github.repository }}'\nBranch: '${{ github.ref_name }}'"}' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
