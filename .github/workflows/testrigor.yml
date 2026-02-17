@@ -9,44 +9,78 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout code
+      # Step 1: Checkout repo (optional if not needed)
       - name: Checkout
         uses: actions/checkout@v3
 
-      # Step 2: Trigger cloud suite
-      - name: Trigger testrigor suite
-        id: run_suite
+      # Step 2: Run testrigor CI script
+      - name: Run testrigor suite
+        id: run_tests
         run: |
-          echo "Triggering testrigor suite..."
-          RESPONSE=$(curl -s -X POST "https://api.testrigor.com/api/run" \
-            -H "Authorization: Bearer ${{ secrets.TESTRIGOR_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"testSuiteId\":\"XaF3XkqTdMiNwApoN\"}")
+          #!/bin/bash
 
-          echo "response=$RESPONSE" >> $GITHUB_OUTPUT
+          # Trigger testRigor run
+          curl -X POST \
+            -H 'Content-type: application/json' \
+            -H "auth-token: ${{ secrets.TESTRIGOR_API_KEY }}" \
+            --data '{"forceCancelPreviousTesting":true,"storedValues":{"storedValueName1":"Value"}}' \
+            https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/retest
 
-      # Step 3: Check suite result
-      - name: Check result
-        run: |
-          RAW="${{ steps.run_suite.outputs.response }}"
-          STATUS=$(echo "$RAW" | grep -o '"status":"[A-Z]*"' | sed 's/"status":"//;s/"//')
+          # Wait a bit before polling
+          sleep 10
 
-          echo "Suite Status: $STATUS"
+          while true
+          do
+            echo " "
+            echo "==================================="
+            echo " Checking run status"
+            echo "==================================="
+            
+            # Get status
+            response=$(curl -i -o - -s -X GET "https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/status" \
+              -H "auth-token: ${{ secrets.TESTRIGOR_API_KEY }}" \
+              -H "Accept: application/json")
+              
+            code=$(echo "$response" | grep HTTP | awk '{print $2}')
+            echo "Status code: $code"
 
-          if [ "$STATUS" = "FAILED" ]; then
-            echo "Tests failed!"
-            exit 1
-          fi
+            case $code in
+              4*|5*)
+                echo "Error calling API"
+                exit 1
+                ;;
+              200)
+                echo "Test finished successfully"
+                exit 0
+                ;;
+              227|228)
+                echo "Test is not finished yet"
+                ;;
+              229)
+                echo "Test canceled"
+                exit 1
+                ;;
+              230)
+                echo "Test finished but failed"
+                exit 1
+                ;;
+              *)
+                echo "Unknown status"
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
 
-      # Step 4: Notify Slack on failure
-      - name: Slack on failure
+      # Step 3: Slack notification on failure
+      - name: Notify Slack on failure
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' \
           --data '{"text":"❌ testrigor Tests FAILED"}' ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      # Step 5: Notify Slack on success
-      - name: Slack on success
+      # Step 4: Slack notification on success
+      - name: Notify Slack on success
         if: success()
         run: |
           curl -X POST -H 'Content-type: application/json' \
