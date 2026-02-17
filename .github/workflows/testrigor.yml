@@ -1,4 +1,4 @@
-name: CI - testrigor
+name: CI - testrigor (Direct Token Test)
 
 on:
   push:
@@ -9,45 +9,43 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout code
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v3
 
-      # Step 2: Trigger and monitor testrigor suite
-      - name: Run testrigor suite
+      - name: Run testrigor suite (direct token)
         run: |
           #!/bin/bash
           set -e
 
+          TOKEN="YUQjfG0W0ywpfEmeXTPyVEU0vLJoEMRa81JejA0YBlClvUKArO9m"
+          SUITE_ID="XaF3XkqTdMiNwApoN"
+
           echo "Triggering testRigor suite..."
           RESPONSE=$(curl -s -X POST \
             -H 'Content-type: application/json' \
-            -H "auth-token: ${{ secrets.TESTRIGOR_API_KEY }}" \
+            -H "auth-token: $TOKEN" \
             --data '{"forceCancelPreviousTesting":true}' \
-            https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/retest)
+            https://api.testrigor.com/api/v1/apps/$SUITE_ID/retest)
 
           echo "Trigger response: $RESPONSE"
 
-          # Fail immediately if unauthorized
           if echo "$RESPONSE" | grep -q "Unauthorized"; then
-            echo "❌ Unauthorized access — check TESTRIGOR_API_KEY"
+            echo "❌ Unauthorized access — check token or suite ID"
             exit 1
           fi
 
           echo "Waiting for test suite to complete..."
 
-          # Polling settings
-          MAX_WAIT=300         # 5 minutes max for single test
-          SLEEP_INTERVAL=5     # poll every 5 seconds
+          MAX_WAIT=300       # 5 minutes max
+          SLEEP_INTERVAL=5   # poll every 5 seconds
           ELAPSED=0
 
           while [ $ELAPSED -lt $MAX_WAIT ]; do
             STATUS_RESPONSE=$(curl -s -X GET \
-              -H "auth-token: ${{ secrets.TESTRIGOR_API_KEY }}" \
+              -H "auth-token: $TOKEN" \
               -H "Accept: application/json" \
-              https://api.testrigor.com/api/v1/apps/XaF3XkqTdMiNwApoN/status)
+              https://api.testrigor.com/api/v1/apps/$SUITE_ID/status)
 
-            # Unauthorized check during polling
             if echo "$STATUS_RESPONSE" | grep -q "Unauthorized"; then
               echo "❌ Unauthorized access during polling"
               exit 1
@@ -72,16 +70,14 @@ jobs:
           echo "⚠️ Test suite timed out after $MAX_WAIT seconds"
           exit 1
 
-      # Step 3: Slack notification on failure
-      - name: Notify Slack on failure
+      - name: Slack notification on failure
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' \
           --data '{"text":"❌ testrigor Tests FAILED!\nRepository: '${{ github.repository }}'\nBranch: '${{ github.ref_name }}'\nCommit: '${{ github.sha }}'"}' \
           ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      # Step 4: Slack notification on success
-      - name: Notify Slack on success
+      - name: Slack notification on success
         if: success()
         run: |
           curl -X POST -H 'Content-type: application/json' \
