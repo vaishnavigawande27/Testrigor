@@ -1,61 +1,96 @@
-#!/usr/bin/env bash
+name: Run TestRigor
 
-APP_ID="XaF3XkqTdMiNwApoN"
-AUTH_TOKEN="YUQjfG0W0ywpfEmeXTPyVEU0vLJoEMRa81JejA0YBlClvUKArO9m"
-BASE_URL="https://api.testrigor.com/api/v1/apps/$APP_ID"
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
-# Start retest
-curl -s -X POST \
-  -H "Content-type: application/json" \
-  -H "auth-token: $AUTH_TOKEN" \
-  --data '{"forceCancelPreviousTesting":true,"storedValues":{"storedValueName1":"Value"}}' \
-  "$BASE_URL/retest"
+jobs:
+  testrigor:
+    runs-on: ubuntu-latest
 
-sleep 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-while true; do
-  echo
-  echo "==================================="
-  echo " Checking run status"
-  echo "==================================="
+      - name: Run TestRigor API script
+        id: testrun
+        env:
+          APP_ID: XaF3XkqTdMiNwApoN
+          AUTH_TOKEN: YUQjfG0W0ywpfEmeXTPyVEU0vLJoEMRa81JejA0YBlClvUKArO9m
+        run: |
+          BASE_URL="https://api.testrigor.com/api/v1/apps/$APP_ID"
 
-  # Capture response body and status code separately
-  response=$(curl -s -w "\n%{http_code}" \
-    -H "auth-token: $AUTH_TOKEN" \
-    -H "Accept: application/json" \
-    "$BASE_URL/status")
+          echo "Starting TestRigor test..."
 
-  body=$(echo "$response" | sed '$d')
-  code=$(echo "$response" | tail -n1)
+          start_code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "Content-type: application/json" \
+            -H "auth-token: $AUTH_TOKEN" \
+            --data '{"forceCancelPreviousTesting":true}' \
+            "$BASE_URL/retest")
 
-  echo "Status code: $code"
-  echo "Response: $body"
+          if [ "$start_code" != "200" ]; then
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "Failed to start test. HTTP $start_code"
+            exit 1
+          fi
 
-  case "$code" in
-    4*|5*)
-      echo "Error calling API"
-      exit 1
-      ;;
-    200)
-      echo "Test finished successfully"
-      exit 0
-      ;;
-    227|228)
-      echo "Test is not finished yet"
-      ;;
-    229)
-      echo "Test canceled"
-      exit 1
-      ;;
-    230)
-      echo "Test finished but failed"
-      exit 1
-      ;;
-    *)
-      echo "Unknown status"
-      exit 1
-      ;;
-  esac
+          echo "Test started successfully"
+          sleep 15
 
-  sleep 10
-done
+          while true; do
+            response=$(curl -s -w "\n%{http_code}" \
+              -H "auth-token: $AUTH_TOKEN" \
+              -H "Accept: application/json" \
+              "$BASE_URL/status")
+
+            body=$(echo "$response" | sed '$d')
+            code=$(echo "$response" | tail -n1)
+
+            echo "HTTP Status: $code"
+            echo "Response: $body"
+
+            case "$code" in
+              200)
+                echo "status=success" >> $GITHUB_OUTPUT
+                exit 0
+                ;;
+              227|228)
+                echo "Test still running..."
+                ;;
+              229|230)
+                echo "status=failed" >> $GITHUB_OUTPUT
+                exit 1
+                ;;
+              4*|5*)
+                echo "status=failed" >> $GITHUB_OUTPUT
+                exit 1
+                ;;
+              *)
+                echo "status=failed" >> $GITHUB_OUTPUT
+                exit 1
+                ;;
+            esac
+
+            sleep 15
+          done
+
+      - name: Notify Slack - Success
+        if: success()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+          --data '{
+            "text": "✅ TestRigor test PASSED for repository ${{ github.repository }} on branch ${{ github.ref_name }}."
+          }' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack - Failure
+        if: failure()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+          --data '{
+            "text": "❌ TestRigor test FAILED for repository ${{ github.repository }} on branch ${{ github.ref_name }}.\nCheck run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          }' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
