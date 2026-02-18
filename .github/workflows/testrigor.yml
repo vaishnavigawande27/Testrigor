@@ -1,40 +1,61 @@
-name: CI - testrigor
+#!/usr/bin/env bash
 
-on:
-  push:
-    branches: [ main ]
+APP_ID="XaF3XkqTdMiNwApoN"
+AUTH_TOKEN="YUQjfG0W0ywpfEmeXTPyVEU0vLJoEMRa81JejA0YBlClvUKArO9m"
+BASE_URL="https://api.testrigor.com/api/v1/apps/$APP_ID"
 
-jobs:
-  run-testrigor-tests:
-    runs-on: ubuntu-latest
+# Start retest
+curl -s -X POST \
+  -H "Content-type: application/json" \
+  -H "auth-token: $AUTH_TOKEN" \
+  --data '{"forceCancelPreviousTesting":true,"storedValues":{"storedValueName1":"Value"}}' \
+  "$BASE_URL/retest"
 
-    steps:
-      # Step 2.1: Checkout code
-      - name: Checkout code
-        uses: actions/checkout@v3
+sleep 10
 
-      # Step 2.2: Run testrigor tests
-      - name: Run testrigor tests
-        run: |
-          echo "Running testrigor tests..."
-          # Replace this with your actual testrigor command
-          # Example:
-          # testrigor run my_suite
+while true; do
+  echo
+  echo "==================================="
+  echo " Checking run status"
+  echo "==================================="
 
-      # Step 2.3: Notify Slack on FAILURE
-      - name: Notify Slack on failure
-        if: failure()
-        run: |
-          curl -X POST -H 'Content-type: application/json' \
-          --data '{
-            "text": "❌ testrigor Tests FAILED!\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\n[View CI Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          }' ${{ secrets.SLACK_WEBHOOK_URL }}
+  # Capture response body and status code separately
+  response=$(curl -s -w "\n%{http_code}" \
+    -H "auth-token: $AUTH_TOKEN" \
+    -H "Accept: application/json" \
+    "$BASE_URL/status")
 
-      # Step 2.4: Notify Slack on SUCCESS
-      - name: Notify Slack on success
-        if: success()
-        run: |
-          curl -X POST -H 'Content-type: application/json' \
-          --data '{
-            "text": "✅ testrigor Tests PASSED!\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\n[View CI Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          }' ${{ secrets.SLACK_WEBHOOK_URL }}
+  body=$(echo "$response" | sed '$d')
+  code=$(echo "$response" | tail -n1)
+
+  echo "Status code: $code"
+  echo "Response: $body"
+
+  case "$code" in
+    4*|5*)
+      echo "Error calling API"
+      exit 1
+      ;;
+    200)
+      echo "Test finished successfully"
+      exit 0
+      ;;
+    227|228)
+      echo "Test is not finished yet"
+      ;;
+    229)
+      echo "Test canceled"
+      exit 1
+      ;;
+    230)
+      echo "Test finished but failed"
+      exit 1
+      ;;
+    *)
+      echo "Unknown status"
+      exit 1
+      ;;
+  esac
+
+  sleep 10
+done
